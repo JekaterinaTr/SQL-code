@@ -1,0 +1,280 @@
+--PART 1: COLLECTING DATA
+
+   -- I imported a large dataset (DonnesLPO from https://www.gbif.org/dataset/217a1e61-33a1-471e-bb05-76cd2e22cb06) contaning both relevant and non-relevant information on animal sightings in the Marine Nature Reserves in France and then viewed the imported excel file dataset
+
+            select *
+            from DonnesLPO
+            order by class
+
+    -- I would like now to select data with only bird species and with only relevant information: species name,  observation date and location
+
+            select scientificName, eventDate, county
+            from DonnesLPO
+            where class like 'Aves'
+            order by 1
+
+    -- To minimize the code and effort I create a new  table (DonnesOiseaux) that contains only the resevant information
+
+           drop table if exists DonnesOiseaux
+           create table DonnesOiseaux
+           (SpeciesName nvarchar (255),
+           SightingDate datetime,
+           SightingLocation nvarchar (255))
+
+          insert into DonnesOiseaux
+          select scientificName, eventDate, county
+          from DonnesLPO
+          where class like 'Aves'
+
+          select *
+          from DonnesOiseaux
+          order by 1
+
+   -- My new table does not contain all information that I want. I would like to also know the species's commun name in French and English languages. 
+   --The species' names can be aquired from a different dataset (NamesList from https://www.worldbirdnames.org/new/ioc-lists/master-list-2/) contaning all common names in different languages
+   --I imported as this dataset 
+
+          select *
+          from NamesList
+
+--Now I would like to add the common names from the NamesList table into my DonnesOiseaux table. I need to use identical information from both table, for example the species latin names.
+--But there is a problem: While the DonnesOiseaux table contains complete species names (e.g. Accipiter gentilis (Linnaeus, 1758)), the NameList contains shorter versions of species names (e.g. Accipiter gentilis);
+--thus I need to modify the DonnesOiseaux table to reduce the species name's to a shorter version using Substring function
+
+          update DonnesOiseaux
+          set SpeciesName = 
+          substring (SpeciesName,0, CHARINDEX(' ', SpeciesName, CHARINDEX(' ', SpeciesName, 0)+1)) 
+
+          select *
+          from DonnesOiseaux
+          order by 1
+
+   -- Now I combine the DonnesOiseaux table and the NameList tables which will allow me to add the species's common names. 
+   --Note: use LEFT OUTER JOIN function to keep all the sighting data from the DonnesOiseaux table even if there is no matching common names in the NameList table
+
+          drop table if exists DonnesOiseaux2
+          create table DonnesOiseaux2
+          (SpeciesName nvarchar (255),
+          FrenchName nvarchar (255),
+          EnglishName nvarchar (255),
+          SightingDate datetime,
+          SightingLocation nvarchar (255))
+
+          insert into DonnesOiseaux2
+          select DonnesOiseaux.SpeciesName, NamesList.French, NamesList.English, DonnesOiseaux.SightingDate, DonnesOiseaux.SightingLocation
+          from DonnesOiseaux
+          left outer join NamesList
+          on DonnesOiseaux.SpeciesName = NamesList.IOC_13#2
+
+          select *
+          from DonnesOiseaux2
+          order by 1
+
+--PART 2: DATA CLEANING
+
+    -- Now the table is almost correct, but a few birds don't have respective English and French names due to the incompleteness of the NamesList dataset.
+    --How many and which species should be corrected then? Let's check it out!
+
+          select SpeciesName, FrenchName, EnglishName,
+          count (distinct SpeciesName) as UnnamedSpecies
+          from DonnesOiseaux2
+          where FrenchName is null or EnglishName is null
+          group by SpeciesName, FrenchName, EnglishName
+
+   -- By observing the resulting 53 bird species without an English or a French name I can see that some of these are not really distinct species but contain only genus names; 
+   --these species haven't been clearly identified and thus I should remove them manually from my table.
+
+          delete from DonnesOiseaux2 
+          where SpeciesName like 'Acrocephalus J.' 
+          or SpeciesName like 'Alcidae Leach,' 
+          or SpeciesName like 'Anas Linnaeus,'
+          or SpeciesName like 'Anthus Bechstein,'
+          or SpeciesName like 'Bucephala Baird,'
+          or SpeciesName like 'Circus LacÃ©pÃ¨de,'
+          or SpeciesName like 'Corvus Linnaeus,'
+          or SpeciesName like 'Falconiformes Sharpe,'
+          or SpeciesName like 'Hippolais Conrad'
+          or SpeciesName like 'Laridae Vigors,'
+          or SpeciesName like 'Melanitta Boie,'
+          or SpeciesName like 'Numenius Brisson,'
+          or SpeciesName like 'Phoenicurus Forster,'
+          or SpeciesName like 'Puffinus Brisson,'
+          or SpeciesName like 'Stercorariidae Gray,'
+          or SpeciesName like  'Sterna Linnaeus,'
+
+   -- For the remaining 37 bird species I have to find their common names from Wikipedia 
+   --and create a new table  which will contain latin, french and english bird names (table MissingBirdNames)  
+
+
+        drop table if exists MissingBirdNames
+        create table MissingBirdNames
+        (SpeciesName nvarchar (255),
+        FrenchName nvarchar (255),
+        EnglishName nvarchar (255),
+        )
+
+        insert into MissingBirdNames values
+        ('Acrocephalus scirpeus', 'Rousserolle effarvatte', 'Common Reed Warbler'),
+        ('Actites hypoleucos', 'Chevalier guignette', 'Common Sandpiper'),
+        ('Alcedo vintsioides', 'Martin-pêcheur vintsi', 'Malagasy Kingfisher'),
+        ('Anas clypeata', 'Canard souchet', 'Northern Shoveler '),
+        ('Anas penelope', 'Canard siffleur', 'Eurasian Wigeon'),
+        ('Anas querquedula', 'Sarcelle d''été ', 'Garganey'),
+        ('Anas strepera', 'Canard chipeau', 'Gadwall'),
+        ('Asio accipitrinus', 'Hibou des marais', 'Short-eared Owl'),
+        ('Branta nigricans', 'Bernache cravant', 'Brant Goose'),
+        ('Carduelis cannabina', 'Linotte mélodieuse', 'Common Linnet'),
+        ('Carduelis chloris', 'Verdier d''Europe', 'European Greenfinch'),
+        ('Carduelis flammea', 'Sizerin flammé', 'Common Redpoll'),
+        ('Carduelis spinus', 'Tarin des aulnes', 'Eurasian Siskin'),
+        ('Casmerodius albus', 'Grande Aigrette', 'Great Egret'),
+        ('Delichon urbica', 'Hirondelle de fenêtre', 'Western House Martin'),
+        ('Egretta alba', 'Grande Aigrette', 'Great Egret'),
+        ('Eudromias morinellus', 'Pluvier guignard', 'Eurasian Dotterel'),
+        ('Falco aeruginosus', 'Busard des roseaux', 'Western Marsh Harrier'),
+        ('Larus melanocephalus', 'Mouette mélanocéphale', 'Mediterranean Gull'),
+        ('Larus minutus','Mouette pygmée', 'Little Gull'),
+        ('Larus ridibundus', 'Mouette rieuse', 'Black-headed Gull'),
+        ('Miliaria calandra', 'Bruant proyer', 'Corn Bunting'),
+        ('Motacilla svecica', 'Gorgebleue à miroir', 'Bluethroat'),
+        ('Oceanodroma leucorhoa', 'Océanite cul-blanc', 'Leach''s Storm Petrel'),
+        ('Phalacrocorax aristotelis', 'Cormoran huppé', 'European Shag'),
+        ('Philomachus pugnax', 'Combattant varié', 'Ruff'),
+        ('Porzana pusilla', 'Marouette de Baillon', 'Baillon''s Crake'),
+        ('Puffinus griseus', 'Puffin fuligineux', 'Sooty Shearwater'),
+        ('Scolopax nebularia', 'Chevalier aboyeur', 'Common Greenshank'),
+        ('Sterna albifrons', 'Sterne naine', 'Little Tern'),
+        ('Sterna caspia', 'Sterne caspienne ', 'Caspian Tern '),
+        ('Sterna elegans', 'Sterne élégante', 'Elegant Tern'),
+        ('Sterna sandvicensis', 'Sterne caugek', 'Sandwich Tern'),
+        ('Strix flammeus', 'Hibou des marais', 'Short-eared Owl'),
+        ('Sylvia communis', 'Fauvette grisette', 'Common Whitethroat'),
+        ('Sylvia curruca', 'Fauvette babillarde', 'Lesser Whitethroat'),
+        ('Tryngites subruficollis', 'Bécasseau roussâtre', 'Buff-breasted Sandpiper')
+
+         select *
+         from MissingBirdNames
+         order by 1
+
+    -- and now I will insert this missing information from the MissingBirdNames table into the DonnesOiseaux2 table
+
+        update DonnesOiseaux2 
+        set FrenchName = MissingBirdNames.FrenchName, EnglishName = MissingBirdNames.EnglishName
+        from MissingBirdNames
+        join DonnesOiseaux2
+        on  MissingBirdNames.SpeciesName = DonnesOiseaux2.SpeciesName
+
+        select *
+        from DonnesOiseaux2
+        order by 1
+
+   --All birds now have both latin, english and french names assigned
+
+   -- Nevertheless during data cleaning I notice that a few bird species names are misspelled in the dataset or their latin name is not up-to-date. 
+   -- Because of this I sometimes see the same species assigned under different latin name and thus the data will treat them as different species producing false results
+   -- I thus need to rename these species correctly.
+
+       update DonnesOiseaux2 set SpeciesName = 'Actitis hypoleucos'  where SpeciesName = 'Actites hypoleucos'
+       update DonnesOiseaux2 set SpeciesName ='Asio flammeus' where SpeciesName = 'Asio accipitrinus' 
+       update DonnesOiseaux2 set SpeciesName =  'Branta bernicla' where SpeciesName = 'Branta nigricans' 
+       update DonnesOiseaux2 set SpeciesName = 'Ardea alba' where SpeciesName = 'Egretta alba'
+       update DonnesOiseaux2 set SpeciesName = 'Delichon urbicum' where SpeciesName = 'Delichon urbica'
+       update DonnesOiseaux2 set SpeciesName =  'Circus aeruginosus' where SpeciesName = 'Falco aeruginosus'
+       update DonnesOiseaux2 set SpeciesName = 'Larus melanocephalus' where SpeciesName = 'Larus melanocephalus'
+       update DonnesOiseaux2 set SpeciesName = 'Hydrocoloeus minutus'  where SpeciesName = 'Larus minutus' 
+       update DonnesOiseaux2 set SpeciesName = 'Chroicocephalus ridibundus' where SpeciesName = 'Larus ridibundus' 
+       update DonnesOiseaux2 set SpeciesName =  'Emberiza calandra'where SpeciesName = 'Miliaria calandra'
+       update DonnesOiseaux2 set SpeciesName = 'Luscinia svecica' where SpeciesName = 'Motacilla svecica'
+       update DonnesOiseaux2 set SpeciesName = 'Chevalier aboyeur' where SpeciesName = 'Scolopax nebularia'
+       update DonnesOiseaux2 set SpeciesName =  'Sternula albifrons' where SpeciesName = 'Sterna albifrons'
+       update DonnesOiseaux2 set SpeciesName =  'Thalasseus sandvicensis' where SpeciesName = 'Sterna sandvicensis'
+       update DonnesOiseaux2 set SpeciesName =  'Asio flammeus' where SpeciesName = 'Strix flammeus'
+
+   -- to check if it worked for a few species:
+
+       select *
+       from DonnesOiseaux2
+       where SpeciesName like '%Asio flammeus%' or SpeciesName like '%Strix flammeus%' 
+       order by 1
+
+   -- Check for double entries with different latin names but the same common names 
+
+       select *
+       from DonnesOiseaux2
+       where SpeciesName in (
+		     select SpeciesName
+		     from DonnesOiseaux2
+		     group by SpeciesName
+		     having count (distinct EnglishName) > 1 or count (distinct FrenchName) > 1 )
+
+        select *
+        from DonnesOiseaux2
+        where EnglishName in (
+		       select EnglishName
+		       from DonnesOiseaux2
+		       group by EnglishName
+		       having count (distinct SpeciesName) > 1  )
+
+   -- This test showed that still we have 4 species which have two different species names in latin but are the same species (because they have the same English name)
+   -- I need to change those individually again
+
+        update DonnesOiseaux2 set SpeciesName = 'Acrocephalus scirpaceus'  where SpeciesName = 'Acrocephalus scirpeus'
+        update DonnesOiseaux2 set SpeciesName = 'Ardea alba'  where SpeciesName = 'Casmerodius albus' or SpeciesName = 'Ardea alba '
+        update DonnesOiseaux2 set SpeciesName = 'Ichthyaetus melanocephalus'  where SpeciesName = 'Larus melanocephalus'
+        update DonnesOiseaux2 set SpeciesName = 'Tringa nebularia'  where SpeciesName = 'Chevalier aboyeur'
+
+   -- In addition, I notice that the name of the 'VendÃ©e' sighting location should be changed to 'Vandée'
+
+        update DonnesOiseaux2 set SightingLocation = 'Vandée'  where SightingLocation = 'VendÃ©e'
+
+   -- The final table is complete and correct. Now it is time to get some information from it!
+
+-- PART3: DATA ANALYSIS
+
+   --So what do we want to know? Let's focus on overall statistics first to have a general overview of what this data could tell us
+       select *
+       from DonnesOiseaux2
+       order by 5
+
+   -- Question 1: How many different bird species were counted in the four natural protected areas?
+
+      select SightingLocation, count (distinct SpeciesName) as SpeciesCount 
+      from DonnesOiseaux2
+      group by SightingLocation
+      order by SightingLocation
+
+   -- Question 2: which are the 20 most sighted bird species? (The data should be ordered from most sighted species down to the rarest)
+
+       select Top 20 FrenchName, 
+       count (EnglishName) as SightingCount
+       from DonnesOiseaux2
+       group by EnglishName 
+       order by SightingCount desc
+
+   -- Question 3: How many birds were counted each consequent year in each of four protected areas? (we omit year 2017 which seems incomplete)
+   --To count that we need to modify the sighting date by leaving only the year of sighting and omitting the day and the month
+ 
+      with CTE_Dates as 
+      (select SpeciesName, FrenchName, EnglishName,
+     year (SightingDate) as SightingYear, SightingLocation
+     from DonnesOiseaux2)
+     select SightingLocation, SightingYear,
+     count (SightingYear) as BirdsPerYear
+     from CTE_Dates
+     where SightingYear != 2017
+     group by SightingLocation, SightingYear
+     order by 1,2 desc
+
+   --Question 4: Which month of the year have the most sightings in each location?
+
+     with CTE_Dates as 
+     (select SightingLocation,
+     month (SightingDate) as SightingMonth 
+     from DonnesOiseaux2)
+     select SightingLocation, SightingMonth,
+     count (SightingMonth) as BirdsPerMonth
+     from CTE_Dates
+     group by SightingLocation, SightingMonth
+     order by 1,3 desc
+
+  -- The results from the four questions can now be imported into Tableau and serve to create a dashboard showing information on the bird sightings in the french marine narual protective areas
