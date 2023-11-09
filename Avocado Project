@@ -1,0 +1,149 @@
+--Import Avocado sales dataset (https://www.kaggle.com/datasets/alanluo418/avocado-prices-20152019)
+
+select*
+from Avocado
+
+
+--DATA CLEANING
+
+--1. Create copy of an original version (to be referenced in case of irreversible errors)
+select *
+into AvocadoCopy
+from Avocado
+
+select *
+from AvocadoCopy
+
+--2. Check data quality
+
+--Check if there are rows missing information (sale date, price or sale volume)
+
+select *
+from Avocado
+where Date is NULL or AveragePrice is NULL or Total_Volume is NULL 
+-- None of the rows have missing information
+
+-- Check data types in each column
+
+select column_name, data_type
+from INFORMATION_SCHEMA.COLUMNS
+where TABLE_NAME = 'Avocado'
+
+--Data types are correct
+
+
+-- 3. Find and remove duplicates
+
+--Check for duplicates
+
+select Date, AveragePrice, Total_Volume, type, year, region, Count(*)
+from Avocado
+group by Date, AveragePrice, Total_Volume, type, year, region
+having Count(*) > 1
+
+--2 duplicates reported
+
+-- List the rows contaning duplicates to confirm that all columns are really identical
+
+select *
+from Avocado a
+join (select Date, AveragePrice, Total_Volume  
+from Avocado
+group by Date, AveragePrice, Total_Volume 
+having Count(*) > 1 )  b
+on a.Date = b.Date
+and a.AveragePrice = b.AveragePrice
+and a.Total_Volume = b.Total_Volume
+
+-- Remove these duplicates
+
+with RowNumCTE as (
+select *, 
+row_number() over (
+partition by Date, AveragePrice, Total_Volume, type, year, region
+order by Date ) row_num
+from Avocado)
+delete
+from RowNumCTE
+where row_num > 1
+
+-- Check 'regions' for completeness
+
+select region, sum (Total_Volume) as TotalSalesPerRegion
+from Avocado
+group by region
+order by TotalSalesPerRegion desc
+
+-- This shows that there are also 'Total U.S.' and 'TotalUS' regions. 
+--Because these are not distinct regions but ruther the sums of different regions, this data is not relevant and will be removed
+
+delete from Avocado
+where region = 'Total U.S.' or region = 'TotalUS'
+
+
+-- DATA Analysis
+
+--1. Total numbers: Total number of avocados sold in the time period, average total price, total number of regions
+
+select sum (Total_Volume) as TotalSalesVolume, avg( AveragePrice) as AveragePrice, count (distinct region) as NumberRegions
+from Avocado
+
+--2. How many avocados  were sold each year?
+
+select  year, sum(Total_Volume) as TotalSaleVolumePerYear
+from Avocado
+group by year
+order by year desc
+
+-- and per month within each year?
+
+select  year, month(Date) as Month, sum(Total_Volume) as TotalSaleVolumePerYear
+from Avocado
+group by year, month(Date)
+order by 1 , 2 
+
+
+
+--3.  What is the percentage of sale increases or decreases each year compared to the previous year? 
+--These are year-on-year growth rates of total sales
+
+
+select  year, sum(Total_Volume) as TotalSaleVolumePerYear, 
+(sum(Total_Volume) - lag(sum(Total_Volume)) over (order by year )) * 100 / sum(Total_Volume) as PercentSalesIncrease
+from Avocado
+group by year
+order by year desc
+
+--And the year-on-year growth rates for different types of avocado products
+
+select  year, sum(_4046) as TotalSale_4046, sum(_4225) as TotalSale_4225,sum(_4770) as TotalSale_4770,
+(sum(_4046) - lag(sum(_4046)) over (order by year )) * 100 / sum(_4046) as PercentSales_4046,
+(sum(_4225) - lag(sum(_4225)) over (order by year )) * 100 / sum(_4225) as PercentSales_4225,
+(sum(_4770) - lag(sum(_4770)) over (order by year )) * 100 / sum(_4770) as PercentSales_4770
+from Avocado
+group by year
+order by year desc
+
+--. What is the average price increase or decrease rates of avocados?
+
+select  year, avg(AveragePrice) as AveragePricePerYear, 
+(avg(AveragePrice) - lag(avg(AveragePrice)) over (order by year )) * 100 / avg(AveragePrice) as PercentPriceIncrease
+from Avocado
+group by year
+order by year desc
+
+-- 4. Top 10 regions with highest avocado sales?
+
+select  top 10 region, sum(Total_Volume) as TotalSaleVolumePerYear
+from Avocado
+group by  region
+order by TotalSaleVolumePerYear desc
+
+
+--5. Organic vs conventional avocados: price per unit, sale volume 
+
+
+select  type, avg(AveragePrice) as AvgPrice, sum(Total_Volume) as TotalSales
+from Avocado
+group by type
+order by type desc
